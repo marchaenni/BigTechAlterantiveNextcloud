@@ -1,0 +1,82 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:10.6
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=example
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  app:
+    image: nextcloud:latest
+    restart: unless-stopped
+    ports:
+      - 8080:80
+    depends_on:
+      - db
+      - redis
+    environment:
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_HOST=db
+      - REDIS_HOST=redis
+    volumes:
+      - nextcloud_data:/var/www/html
+
+  cron:
+    image: nextcloud:latest
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    depends_on:
+      - db
+      - redis
+    environment:
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_HOST=db
+      - REDIS_HOST=redis
+    volumes:
+      - nextcloud_data:/var/www/html
+
+  notify_push:
+    image: ghcr.io/nextcloud/notify_push:latest
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      - NEXTCLOUD_URL=http://app:80
+    ports:
+      - 7867:7867
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    restart: unless-stopped
+    ports:
+      - 8081:80
+
+  collabora:
+    image: collabora/code:latest
+    restart: unless-stopped
+    ports:
+      - 9980:9980
+    environment:
+      - domain=localhost
+
+volumes:
+  db_data:
+  redis_data:
+  nextcloud_data:
