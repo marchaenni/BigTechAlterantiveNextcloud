@@ -52,16 +52,6 @@ services:
     volumes:
       - nextcloud_data:/var/www/html
 
-  notify_push:
-    image: ghcr.io/nextcloud/notify_push:v0.6.13
-    restart: unless-stopped
-    depends_on:
-      - app
-    environment:
-      - NEXTCLOUD_URL=http://app:80
-    ports:
-      - 7867:7867
-
   onlyoffice:
     image: onlyoffice/documentserver:latest
     restart: unless-stopped
