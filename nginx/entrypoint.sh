@@ -6,6 +6,6 @@ if [ -z "${NEXTCLOUD_DOMAIN:-}" ]; then
     exit 1
 fi
 
-envsubst '${NEXTCLOUD_DOMAIN}' < /etc/nginx/templates/nextcloud.conf.template > /etc/nginx/conf.d/nextcloud.conf
+envsubst '${NEXTCLOUD_DOMAIN}' < /etc/nginx/templates/nextcloud.conf > /etc/nginx/conf.d/nextcloud.conf
 
 exec nginx -g 'daemon off;'
