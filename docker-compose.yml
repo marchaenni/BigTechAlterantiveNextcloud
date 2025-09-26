@@ -5,102 +5,101 @@ services:
     image: mariadb:10.6
     restart: unless-stopped
     command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-example}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nextcloud}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nextcloud}
+      MYSQL_USER: ${MYSQL_USER:-nextcloud}
     volumes:
       - db_data:/var/lib/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=example
-      - MYSQL_PASSWORD=nextcloud
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=nextcloud
 
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
     volumes:
       - redis_data:/data
 
   app:
-    image: nextcloud:latest
+    image: nextcloud:29-apache
     restart: unless-stopped
     depends_on:
       - db
       - redis
     environment:
-      - MYSQL_PASSWORD=nextcloud
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=nextcloud
-      - MYSQL_HOST=db
-      - REDIS_HOST=redis
-      - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_DOMAIN}
-      - OVERWRITEHOST=${NEXTCLOUD_DOMAIN}
-      - OVERWRITEPROTOCOL=https
+      MYSQL_HOST: db
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nextcloud}
+      MYSQL_USER: ${MYSQL_USER:-nextcloud}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nextcloud}
+      REDIS_HOST: redis
+      TRUSTED_PROXIES: nginx
+      OVERWRITEPROTOCOL: https
     volumes:
       - nextcloud_data:/var/www/html
-    networks:
-      - default
-      - proxy
 
   cron:
-    image: nextcloud:latest
+    image: nextcloud:29-apache
     restart: unless-stopped
-    entrypoint: /cron.sh
     depends_on:
-      - db
-      - redis
-    environment:
-      - MYSQL_PASSWORD=nextcloud
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=nextcloud
-      - MYSQL_HOST=db
-      - REDIS_HOST=redis
+      - app
+    entrypoint: ["/cron.sh"]
     volumes:
       - nextcloud_data:/var/www/html
 
   nginx:
-    build: ./nginx
+    build:
+      context: ./nginx
     restart: unless-stopped
     depends_on:
       - app
     environment:
-      - NEXTCLOUD_DOMAIN=${NEXTCLOUD_DOMAIN}
+      NEXTCLOUD_DOMAIN: ${NEXTCLOUD_DOMAIN}
     ports:
-      - 80:80
-      - 443:443
-
-      volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nextcloud_data:/var/www/html:ro
       - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
       - certbot_challenges:/var/www/certbot
       - nginx_logs:/var/log/nginx
 
-    networks:
-      - proxy
-      - default
-
-  certbot:
+  # Einmaliger Zertifikats-Request beim ersten Start (schlägt nicht alles fehl, wenn DNS noch nicht ready ist)
+  certbot_init:
     image: certbot/certbot:latest
-    restart: unless-stopped
+    depends_on:
+      - nginx
+    environment:
+      NEXTCLOUD_DOMAIN: ${NEXTCLOUD_DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
     volumes:
       - certbot_etc:/etc/letsencrypt
       - certbot_var:/var/lib/letsencrypt
       - certbot_challenges:/var/www/certbot
-    entrypoint: /bin/sh
-    command: -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "echo 'Requesting initial certificate for ${NEXTCLOUD_DOMAIN}';
+      certbot certonly --non-interactive --agree-tos --email ${LETSENCRYPT_EMAIL}
+      --webroot -w /var/www/certbot -d ${NEXTCLOUD_DOMAIN} || true"
+    restart: "no"
 
-  onlyoffice:
-    image: onlyoffice/documentserver:latest
+  # Automatische Erneuerung (Nginx reload wird von nginx/entrypoint überwacht und ausgelöst)
+  certbot_renew:
+    image: certbot/certbot:latest
     restart: unless-stopped
-    ports:
-      - 8081:80
-
-  collabora:
-    image: collabora/code:latest
-    restart: unless-stopped
-    ports:
-      - 9980:9980
     environment:
-      - domain=localhost
+      NEXTCLOUD_DOMAIN: ${NEXTCLOUD_DOMAIN}
+    volumes:
+      - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
+      - certbot_challenges:/var/www/certbot
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet || true;
+        sleep 12h;
+      done"
 
 volumes:
   db_data:
@@ -110,7 +109,3 @@ volumes:
   certbot_var:
   certbot_challenges:
   nginx_logs:
-
-networks:
-  proxy:
-    driver: bridge
