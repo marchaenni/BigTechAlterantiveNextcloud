@@ -1,7 +1,7 @@
 FROM nginx:1.27-alpine
 
-# envsubst + inotify-tools für Auto-Reload bei Cert-Updates
-RUN apk add --no-cache bash gettext inotify-tools
+# envsubst + inotify-tools + openssl für dhparam
+RUN apk add --no-cache bash gettext inotify-tools openssl
 
 COPY entrypoint.sh /entrypoint.sh
 COPY templates /etc/nginx/templates
