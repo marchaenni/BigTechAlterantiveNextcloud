@@ -22,8 +22,6 @@ services:
   app:
     image: nextcloud:latest
     restart: unless-stopped
-    ports:
-      - 8080:80
     depends_on:
       - db
       - redis
@@ -33,8 +31,14 @@ services:
       - MYSQL_USER=nextcloud
       - MYSQL_HOST=db
       - REDIS_HOST=redis
+      - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_DOMAIN}
+      - OVERWRITEHOST=${NEXTCLOUD_DOMAIN}
+      - OVERWRITEPROTOCOL=https
     volumes:
       - nextcloud_data:/var/www/html
+    networks:
+      - default
+      - proxy
 
   cron:
     image: nextcloud:latest
@@ -51,6 +55,35 @@ services:
       - REDIS_HOST=redis
     volumes:
       - nextcloud_data:/var/www/html
+
+  nginx:
+    build: ./nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      - NEXTCLOUD_DOMAIN=${NEXTCLOUD_DOMAIN}
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
+      - certbot_challenges:/var/www/certbot
+      - nginx_logs:/var/log/nginx
+    networks:
+      - proxy
+      - default
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
+      - certbot_challenges:/var/www/certbot
+    entrypoint: /bin/sh
+    command: -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
 
   onlyoffice:
     image: onlyoffice/documentserver:latest
@@ -70,3 +103,11 @@ volumes:
   db_data:
   redis_data:
   nextcloud_data:
+  certbot_etc:
+  certbot_var:
+  certbot_challenges:
+  nginx_logs:
+
+networks:
+  proxy:
+    driver: bridge
